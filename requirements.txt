@@ -9,3 +9,4 @@ torchvision==0.20.1
 Pillow==10.4.0
 scipy==1.14.1
 scikit-image==0.24.0
+mediapipe==0.10.30
