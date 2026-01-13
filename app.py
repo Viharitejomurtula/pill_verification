@@ -2,7 +2,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException   #File+UploadFile 
 from fastapi.middleware.cors import CORSMiddleware   #Cross-Origin-Resource-Sharing, allows requests from websites
 import cv2
 import numpy as np
-import easyocr
+import pytesseract
 import mediapipe as mp
 from datetime import datetime
 from mediapipe import tasks
@@ -17,18 +17,15 @@ app = FastAPI(title="Pill Verification", version="1.0")    #starting up the app
 
 app.add_middleware(
 	CORSMiddleware,
-	allow_origins=["*"],    #allows requests from anywhere
-	allow_headers=["*"],    #allows all http headers
-	allow_methods=["*"],	  #allows GET, POST, and other methods
+	allow_origins = ["*"],    #allows requests from anywhere
+	allow_headers = ["*"],    #allows all http headers
+	allow_methods = ["*"],	  #allows GET, POST, and other methods
 )
 
 #initialize ML model for text extraction and gesture recognition
 print("Loading ML models...")
-reader = easyocr.Reader(['en'], gpu=False)    #en is for english, other languages can be supported too in the future
 
-
-
-model_path = 'pose_landmark_lite.task'
+model_path = 'pose_landmarker_lite.task'
 if not os.path.exists(model_path):
 	print("Downloading Model...")
 	url = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task'
@@ -81,15 +78,16 @@ async def process_frames(file: UploadFile = File(...)):    #async means that oth
 
 	
 		#OCR Processing
-		ocr_results = reader.readtext(frame)      #text from the frame is stored here along with confidence ("Tylenol", 0.9)
-		detected_texts = [text[1] for text in ocr_results]   #stores just the text and disgards the confidence
-		full_text = " ".join(detected_texts)
-
+		gray = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)    #removes color so that text stands out more
+		_, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)    #converts to black(txt) and white(bckgrnd)
+		full_text = pytesseract.image_to_string(thresh)
+		detected_texts = full_text.split()
+		
 		#hint for words to look out for
 		medication_keywords = [
 			"mg", "tablet", "capsule", "pill", "daily", "take",
-            "prescription", "rx", "medication", "dose", "tylenol",
-            "advil", "aspirin", "ibuprofen"
+    			"prescription", "rx", "medication", "dose", "tylenol",
+    			"advil", "aspirin", "ibuprofen"
 		]
 		
 		#check if any keywords were found
@@ -137,7 +135,7 @@ async def process_frames(file: UploadFile = File(...)):    #async means that oth
 			"timestamp": datetime.now().isoformat(),
 			"ocr": {
 				"text_detected":len(detected_texts) > 0,
-				"full_text": full_text,
+				"full_text": full_text.strip(),
 				"medication_indicators": had_medication,
 				"word_count": len(detected_texts)
 			},	
@@ -165,5 +163,5 @@ async def process_frames(file: UploadFile = File(...)):    #async means that oth
 #server startup
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))  # ← Read PORT from environment
+    port = int(os.environ.get("PORT", 8000))  # ← Read from environment
     uvicorn.run(app, host="0.0.0.0", port=port)
